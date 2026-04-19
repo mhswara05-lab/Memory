@@ -1,0 +1,6 @@
+{
+  "name": "Memory Wheel — Color Span Test",
+  "description": "Adaptive visual memory test based on the Wechsler Color Span Test. Remember sequences on a dynamic color wheel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
