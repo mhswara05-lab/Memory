@@ -5,9 +5,13 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, RotateCcw, Award, CheckCircle2, XCircle } from 'lucide-react';
+import { Play, RotateCcw, Award, CheckCircle2, XCircle, Settings } from 'lucide-react';
+import { saveToSheets } from './lib/sheets';
 
 // --- Constants & Types ---
+
+// GANTI URL INI DENGAN WEB APP URL DARI GOOGLE APPS SCRIPT ANDA
+const SHEETS_URL = "https://script.google.com/macros/s/AKfycbznRjd7vr7RaROfWRpx6NjGtHEJRJSy4HPaRZDkZofUEtjzidbLw-pDGzNYQ492HOU/exec"; 
 
 const TOTAL_LEVELS = 15;
 const FLASH_DURATION = 420; // ms playback
@@ -22,35 +26,41 @@ interface ColorDef {
 }
 
 const ALL_COLORS: ColorDef[] = [
-  { base: '#06b6d4', bright: '#afeefc', name: 'Sian'    }, // Cyan
-  { base: '#f43f5e', bright: '#fecdd3', name: 'Merah'  }, // Rose
-  { base: '#f97316', bright: '#ffedd5', name: 'Oranye' }, // Orange
-  { base: '#10b981', bright: '#d1fae5', name: 'Hijau'  }, // Emerald
-  { base: '#8b5cf6', bright: '#ede9fe', name: 'Ungu'   }, // Violet
+  { base: '#06b6d4', bright: '#afeefc', name: 'Cyan'    }, 
+  { base: '#f43f5e', bright: '#fecdd3', name: 'Rose'    }, 
+  { base: '#f97316', bright: '#ffedd5', name: 'Orange'  }, 
+  { base: '#10b981', bright: '#d1fae5', name: 'Emerald' }, 
+  { base: '#8b5cf6', bright: '#ede9fe', name: 'Violet'  }, 
 ];
 
 interface LevelConfig {
   part: number;
   numColors: number;
   span: number;
+  sequence?: number[];
 }
 
 const LEVELS: LevelConfig[] = [
-  { part: 1, numColors: 3, span: 1 }, // L1
-  { part: 1, numColors: 3, span: 2 }, // L2
-  { part: 1, numColors: 3, span: 3 }, // L3
-  { part: 1, numColors: 3, span: 4 }, // L4
-  { part: 1, numColors: 3, span: 5 }, // L5
-  { part: 2, numColors: 4, span: 4 }, // L6
-  { part: 2, numColors: 4, span: 5 }, // L7
-  { part: 2, numColors: 4, span: 6 }, // L8
-  { part: 2, numColors: 4, span: 7 }, // L9
-  { part: 2, numColors: 4, span: 8 }, // L10
-  { part: 3, numColors: 5, span: 5 }, // L11
-  { part: 3, numColors: 5, span: 6 }, // L12
-  { part: 3, numColors: 5, span: 7 }, // L13
-  { part: 3, numColors: 5, span: 8 }, // L14
-  { part: 3, numColors: 5, span: 9 }, // L15
+  // Part 1: Dasar (3 Colors)
+  { part: 1, numColors: 3, span: 1, sequence: [0] }, // L1: Cyan
+  { part: 1, numColors: 3, span: 2, sequence: [1, 1] }, // L2: Rose, Rose
+  { part: 1, numColors: 3, span: 3, sequence: [2, 2, 0] }, // L3: Orange, Orange, Cyan
+  { part: 1, numColors: 3, span: 4, sequence: [0, 0, 1, 2] }, // L4: Cyan, Cyan, Rose, Orange
+  { part: 1, numColors: 3, span: 5, sequence: [1, 2, 2, 0, 0] }, // L5: Rose, Orange, Orange, Cyan, Cyan
+
+  // Part 2: Menengah (4 Colors)
+  { part: 2, numColors: 4, span: 4, sequence: [3, 3, 0, 1] }, // L6: Emerald, Emerald, Cyan, Rose
+  { part: 2, numColors: 4, span: 5, sequence: [2, 2, 3, 1, 1] }, // L7: Orange, Orange, Emerald, Rose, Rose
+  { part: 2, numColors: 4, span: 6, sequence: [0, 3, 3, 1, 1, 2] }, // L8: Cyan, Emerald, Emerald, Rose, Rose, Orange
+  { part: 2, numColors: 4, span: 7, sequence: [1, 1, 0, 3, 3, 2, 0] }, // L9: Rose, Rose, Cyan, Emerald, Emerald, Orange, Cyan
+  { part: 2, numColors: 4, span: 8, sequence: [3, 2, 2, 0, 1, 1, 3, 0] }, // L10: Emerald, Orange, Orange, Cyan, Rose, Rose, Emerald, Cyan
+
+  // Part 3: Mahir (5 Colors)
+  { part: 3, numColors: 5, span: 5, sequence: [4, 4, 1, 0, 0] }, // L11: Violet, Violet, Rose, Cyan, Cyan
+  { part: 3, numColors: 5, span: 6, sequence: [2, 4, 4, 3, 1, 1] }, // L12: Orange, Violet, Violet, Emerald, Rose, Rose
+  { part: 3, numColors: 5, span: 7, sequence: [0, 0, 4, 2, 2, 3, 1] }, // L13: Cyan, Cyan, Violet, Orange, Orange, Emerald, Rose
+  { part: 3, numColors: 5, span: 8, sequence: [3, 4, 4, 0, 1, 1, 2, 3] }, // L14: Emerald, Violet, Violet, Cyan, Rose, Rose, Orange, Emerald
+  { part: 3, numColors: 5, span: 9, sequence: [4, 2, 2, 1, 4, 4, 0, 3, 3] }, // L15: Violet, Orange, Orange, Rose, Violet, Violet, Cyan, Emerald, Emerald
 ];
 
 type GamePhase = 'idle' | 'showing' | 'input' | 'wrong' | 'finished';
@@ -228,6 +238,8 @@ export default function App() {
   const [userSeq, setUserSeq] = useState<number[]>([]);
   const [activeSector, setActiveSector] = useState<number | null>(null);
   const [resultText, setResultText] = useState('');
+  const [playerName, setPlayerName] = useState('');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   
   const audioRef = useRef<SoundEngine | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -256,7 +268,7 @@ export default function App() {
 
   const runRound = useCallback(async (idx: number) => {
     const config = LEVELS[idx];
-    const seq = Array.from({ length: config.span }, () => Math.floor(Math.random() * config.numColors));
+    const seq = config.sequence || Array.from({ length: config.span }, () => Math.floor(Math.random() * config.numColors));
     
     setTrialSeq(seq);
     setUserSeq([]);
@@ -338,6 +350,38 @@ export default function App() {
 
   const score = Math.round((levelsOk / TOTAL_LEVELS) * 100);
 
+  useEffect(() => {
+    async function performSave() {
+      if (phase === 'finished' && saveStatus === 'idle') {
+        if (!SHEETS_URL) {
+          console.warn("Google Sheets URL belum diisi di App.tsx");
+          setSaveStatus('error');
+          return;
+        }
+
+        setSaveStatus('saving');
+        try {
+          await saveToSheets(SHEETS_URL, {
+            playerName,
+            score,
+            level: levelIdx + 1
+          });
+          setSaveStatus('saved');
+        } catch (e) {
+          console.error("Failed to save to sheets:", e);
+          setSaveStatus('error');
+        }
+      }
+    }
+    performSave();
+  }, [phase, score, levelIdx, playerName, saveStatus]);
+
+  useEffect(() => {
+    if (phase === 'idle') {
+      setSaveStatus('idle');
+    }
+  }, [phase]);
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       
@@ -358,13 +402,34 @@ export default function App() {
           <div id="game-view" className="flex flex-col items-center gap-4 sm:gap-6 w-full py-8">
             
             {/* Status Info */}
-            <div className="text-[10px] sm:text-xs uppercase font-black tracking-[0.4em] opacity-30 select-none">
-              LEVEL {levelIdx + 1}
+            <div className="flex flex-col items-center gap-1 select-none">
+              <div className="text-[10px] sm:text-xs uppercase font-black tracking-[0.4em] opacity-30 leading-none">
+                {currentLevel.part === 1 ? 'Part 1: Dasar' : currentLevel.part === 2 ? 'Part 2: Menengah' : 'Part 3: Mahir'}
+              </div>
+              <div className="text-[8px] sm:text-[9px] uppercase font-bold tracking-[0.2em] opacity-20">
+                LEVEL {levelIdx + 1}
+              </div>
+            </div>
+
+            {/* Dot Indicators - MOVED TOP */}
+            <div className="flex gap-2.5 h-3 items-center mt-1">
+              {Array.from({ length: currentLevel.span }).map((_, i) => {
+                let statusClass = '';
+                if (i < userSeq.length) statusClass = 'dot-filled';
+                else if (i === userSeq.length && phase === 'input') statusClass = 'dot-active';
+                
+                return (
+                  <div 
+                    key={i} 
+                    className={`dot ${statusClass} !w-1.5 !h-1.5 sm:!w-2 sm:!h-2`} 
+                  />
+                );
+              })}
             </div>
 
             {/* Wheel Area */}
-            <div className="relative group mt-4 sm:mt-8 w-full flex justify-center">
-              <div className="relative w-[min(85vw,380px)] h-[min(85vw,380px)]">
+            <div className="relative group mt-2 sm:mt-4 w-full flex justify-center">
+              <div className="relative w-[min(78vw,340px)] h-[min(78vw,340px)]">
                 <motion.svg 
                   viewBox="0 0 400 400" 
                   className="w-full h-full wheel-svg"
@@ -402,8 +467,8 @@ export default function App() {
 
                 {/* Center Circle Overlay */}
                 <div className="wheel-center shadow-inner">
-                  <span className="text-[10px] font-bold tracking-[2px] opacity-80 uppercase leading-none mb-1">Span</span>
-                  <span className="text-3xl font-black text-gold tabular-nums leading-none">
+                  <span className="text-[9px] font-bold tracking-[2px] opacity-80 uppercase leading-none mb-1">Span</span>
+                  <span className="text-2xl font-black text-gold tabular-nums leading-none">
                     {currentLevel.span}
                   </span>
                 </div>
@@ -423,41 +488,48 @@ export default function App() {
               </div>
             </div>
 
-            {/* Dot Indicators */}
-            <div className="flex flex-col items-center gap-6 mt-4">
-              <div className="flex gap-3 h-4 items-center">
-                {Array.from({ length: currentLevel.span }).map((_, i) => {
-                  let statusClass = '';
-                  if (i < userSeq.length) statusClass = 'dot-filled';
-                  else if (i === userSeq.length && phase === 'input') statusClass = 'dot-active';
-                  
-                  return (
-                    <div 
-                      key={i} 
-                      className={`dot ${statusClass}`} 
-                    />
-                  );
-                })}
-              </div>
-              
-              <div className="h-6">
+            {/* Input & Call to Action Area */}
+            <div className="flex flex-col items-center gap-4 mt-2 sm:mt-4 w-full max-w-[280px]">
+              <div className="h-6 w-full">
                 <AnimatePresence mode="wait">
                   {phase === 'idle' ? (
-                    <motion.button 
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.9 }}
-                      onClick={startGame}
-                      className="btn-primary flex items-center gap-2 group"
-                    >
-                      <Play className="fill-current w-5 h-5 group-hover:scale-110 transition-transform" />
-                      Mulai Tes
-                    </motion.button>
+                    <div className="flex flex-col items-center gap-3 w-full">
+                      <div className="flex flex-col gap-1 w-full bg-white/5 p-2.5 rounded-xl border border-white/10 text-left transition-all focus-within:border-accent/50 focus-within:bg-white/10">
+                        <label className="text-[8px] uppercase tracking-[0.2em] font-black opacity-30 px-1">Nama Pemain</label>
+                        <input 
+                          type="text" 
+                          value={playerName} 
+                          onChange={(e) => setPlayerName(e.target.value)}
+                          className="bg-transparent border-none font-black uppercase tracking-widest focus:outline-none placeholder:text-white/20 text-sm text-white"
+                          placeholder="MASUKKAN NAMA PEMAIN..."
+                        />
+                      </div>
+                      
+                      <motion.button 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        onClick={() => {
+                          if (playerName.trim()) {
+                            startGame();
+                          }
+                        }}
+                        disabled={!playerName.trim()}
+                        className={`btn-primary flex items-center gap-2 group w-full justify-center transition-all duration-300 ${!playerName.trim() ? 'opacity-50 grayscale cursor-not-allowed scale-[0.98]' : 'opacity-100'}`}
+                      >
+                        <Play className="fill-current w-5 h-5 group-hover:scale-110 transition-transform" />
+                        Mulai Tes
+                      </motion.button>
+
+                      {!playerName.trim() && (
+                        <p className="text-[8px] uppercase tracking-widest font-bold opacity-30 animate-pulse">Isi nama untuk mulai</p>
+                      )}
+                    </div>
                   ) : (
                     <motion.p 
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="text-xs uppercase tracking-widest font-bold text-accent h-4"
+                      className="text-xs uppercase tracking-widest font-bold text-accent h-4 text-center"
                     >
                       {phase === 'showing' ? 'Perhatikan Urutan...' : 'Sekarang Giliranmu!'}
                     </motion.p>
@@ -483,10 +555,24 @@ export default function App() {
 
             <NormalCurve userScore={levelsOk} />
 
-            <button onClick={resetGame} className="btn-primary w-full group flex items-center justify-center gap-4 py-3 sm:py-4">
-              <RotateCcw className="w-5 h-5 group-hover:rotate-[-45deg] transition-transform" />
-              Main Lagi
-            </button>
+            <div className="flex flex-col gap-4 w-full">
+              {saveStatus === 'saving' && (
+                <p className="text-[10px] text-white/50 animate-pulse italic text-center">Menyimpan ke Google Sheets...</p>
+              )}
+              {saveStatus === 'saved' && (
+                <p className="text-[10px] text-emerald-400 font-bold text-center">✓ Data berhasil masuk ke Google Sheets</p>
+              )}
+              {saveStatus === 'error' && (
+                <p className="text-[10px] text-rose-400 font-bold text-center">
+                  {!SHEETS_URL ? '⚠ URL Google Sheets belum dipasang' : '⚠ Gagal koneksi ke Google Sheets'}
+                </p>
+              )}
+
+              <button onClick={resetGame} className="btn-primary w-full group flex items-center justify-center gap-4 py-3 sm:py-4">
+                <RotateCcw className="w-5 h-5 group-hover:rotate-[-45deg] transition-transform" />
+                Main Lagi
+              </button>
+            </div>
           </motion.div>
         )}
       </div>
